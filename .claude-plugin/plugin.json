@@ -1,0 +1,11 @@
+{
+  "name": "llm-wiki-okf",
+  "description": "Persistent markdown knowledge base (OKF format) for LLM project memory. Two-tier wiki with immutable raw sources and LLM-generated concept pages.",
+  "version": "1.1.0",
+  "author": {
+    "name": "hanupratap"
+  },
+  "homepage": "https://github.com/hanupratap/llm-wiki-okf",
+  "repository": "https://github.com/hanupratap/llm-wiki-okf",
+  "license": "MIT"
+}
