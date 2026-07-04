@@ -57,6 +57,19 @@ bundle/
 
 ## Install
 
+### Multi-platform installer
+
+```bash
+./install.sh pi        # Pi coding agent
+./install.sh claude    # Claude Code
+./install.sh cursor    # Cursor IDE
+./install.sh copilot   # GitHub Copilot
+./install.sh windsurf  # Windsurf IDE
+./install.sh all       # All detected platforms
+```
+
+### Pi
+
 ```bash
 pi install npm:llm-wiki-okf
 ```
@@ -66,6 +79,45 @@ From git:
 ```bash
 pi install git:github.com/hanupratap/llm-wiki-okf
 ```
+
+### Claude Code
+
+```bash
+git clone https://github.com/hanupratap/llm-wiki-okf.git ~/.claude/skills/llm-wiki-okf
+```
+
+Or via npm:
+
+```bash
+npm install -g llm-wiki-okf
+ln -s "$(npm root -g)/llm-wiki-okf/skills/llm-wiki-okf" ~/.claude/skills/llm-wiki-okf
+```
+
+Trigger in Claude: `/skill:llm-wiki-okf`
+
+### Cursor
+
+```bash
+./install.sh cursor
+```
+
+Creates `.cursor/rules/llm-wiki-okf.md`. Enable it in Cursor Settings → Rules.
+
+### GitHub Copilot
+
+```bash
+./install.sh copilot
+```
+
+Appends to `.github/copilot-instructions.md`. Copilot will follow the wiki-first discipline.
+
+### Windsurf
+
+```bash
+./install.sh windsurf
+```
+
+Writes to `.windsurfrules`.
 
 ## Usage
 
