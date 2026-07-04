@@ -1,76 +1,59 @@
 # llm-wiki-okf
 
-> Inspired by [Andrej Karpathy's LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern and Google's [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) (OKF) specification.
+Inspired by [Andrej Karpathy's LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern and Google's [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) (OKF) specification.
 
-Persistent project memory for your AI coding agent — a markdown knowledge base that your LLM actually consults before answering.
+Persistent project memory for AI coding agents. A markdown knowledge base the agent consults before answering.
 
-## The problem
+## Why this exists
 
-AI coding agents are great at reading code, but they have no memory. Ask the same question in two sessions and you get two different answers. Tell them "remember this architecture decision" and… they forget. Other approaches fail in predictable ways:
+AI agents read code well but have no memory. Same question across sessions gets different answers. Existing approaches fail:
 
-- **Scatter-shot files** ("just write it in CLAUDE.md") — the model has no structured way to find what it needs, and the file becomes an unreadable dump.
-- **RAG / vector search** — fuzzy semantic matching returns noise. Good for discovery, terrible for authoritative answers. The model doesn't *know* to search, and when it does, it often ignores results.
-- **Platform-based solutions** — tie you to a service, an API, a format you don't control. Data lives outside your repo.
-- **Raw context dumping** — costs tokens, burns cache, and the model skims past it when it's not structured for retrieval.
+**CLAUDE.md / flat context files.** The model has no structure to find what it needs. Files become dumps.
 
-## What llm-wiki-okf does differently
+**Vector RAG.** Fuzzy matching returns noise. Good for discovery, bad for authoritative answers. The model may skip the search entirely.
 
-### Query-first, always
+**Platform tools.** Tie you to a service, an API, a format you do not control. Data lives outside the repo.
 
-The skill enforces a non-negotiable rule: **before answering any memory question, the model must read `index.md`**. It can't skip the wiki and go straight to project files. It can't answer from last-session memory. It must follow the index → subsection index → concept page chain every time. If the wiki is silent, only then does it fall back to raw sources.
+**Raw context dumps.** Cost tokens, burn cache, and the model skims past unstructured text.
 
-This eliminates the most common failure mode: the LLM having the right information available but never looking at it.
+## How this is different
 
-### Two-tier architecture
+**Query-first discipline.** The skill requires the model to read `index.md` before answering any memory question. It cannot skip the wiki, cannot answer from last-session recall, cannot read project files first. Index to subsection index to concept page, every time. Falls back to raw sources only when the wiki is silent.
+
+**Two-tier architecture.** `raw/` is immutable. Source documents are dropped in and never edited. Concept pages are compiled *from raw*, not from wiki text, preventing drift.
 
 ```
 bundle/
-├── index.md            ← mandatory entry point, auto-generated index
-├── log.md              ← every change, newest first
-├── raw/                ← immutable source documents (never edited)
-│   └── design-doc.md
-├── sources/            ← summaries of raw documents
-├── notes/              ← decisions, architecture, conventions
-├── entities/           ← people, teams, services, datasets
-└── concepts/           ← domain concepts, one idea per file
+├── index.md          mandatory entry point
+├── log.md            change history, newest first
+├── raw/              immutable source documents
+├── sources/          summaries of raw documents
+├── notes/            decisions, architecture, conventions
+├── entities/         people, teams, services, datasets
+└── concepts/         domain concepts, one idea per file
 ```
 
-- **`raw/` is immutable.** Source documents are dropped in and never changed. Concept pages are *compiled from raw*, not from wiki text — preventing drift between the source and the summary.
-- **One idea per file.** Every concept page has a clear `type`, required `sources`, root-relative cross-links, and a timestamp. The link graph *is* the knowledge graph.
+**Surgical and auditable.** No wholesale rewrites. Every factual page requires a `sources` field tracing back to `raw/`. When a new source contradicts an existing page the skill shows a diff and asks before resolving. No silent overwrites.
 
-### Surgical, auditable, traceable
+**Every page is linked.** No orphan pages. Every concept must be linked from at least one non-index page. The cross-link graph is the knowledge graph.
 
-| Rule | Why |
-|------|-----|
-| **Surgical edits only** | No wholesale rewrites. Change what changed, leave the rest intact. |
-| **Every factual page has `sources`** | You can always trace a claim back to its origin in `raw/`. |
-| **Contradiction flagging** | New source contradicts existing page? The skill shows a diff and *asks before resolving*. No silent overwrites. |
-| **No orphan pages** | Every concept must be linked from at least one non-index page. Nothing gets lost in a dead-end file. |
-| **Git-committed after every operation** | Every INGEST and UPDATE creates a commit. Full history, revertible, reviewable. |
+**Git-native.** Every INGEST and UPDATE creates a commit. Full history, revertible, reviewable.
 
-### Built-in tooling
+**Built-in tooling.** `okf_lint.py` validates broken links, orphan pages, missing sources, and bad timestamps. `okf_index.py` regenerates auto-indexes. Errors are hard stops, not warnings.
 
-```
-python3 scripts/okf_init.py <bundle>    # scaffold a new wiki
-python3 scripts/okf_index.py <bundle>   # regenerate auto-indexes
-python3 scripts/okf_lint.py <bundle>    # validate: broken links, orphans, missing sources, bad timestamps
-python3 scripts/okf_now.py              # timestamp helper
-```
+**No service dependency.** Markdown files in a directory. Works offline, works with git, lives in your repo or `~/.llm-wiki`.
 
-The linter catches format errors, broken cross-links, orphan pages, and missing source references before they become problems.
+## Comparison
 
-### Not a platform, not a database
-
-The wiki is just markdown files in a directory. It lives in your project repo or in `~/.llm-wiki`. It works with git. No API keys, no vector database, no service dependency. You own the data.
-
-### LLM-native format
-
-The [OKF format](skills/llm-wiki-okf/references/okf-spec.md) (Open Knowledge Format) is designed for LLM consumption, not human browsing:
-
-- Short files with clear `type` and `description` fields the model can scan quickly
-- Index-driven navigation (the model reads the index, follows links, finds the relevant page)
-- Root-relative markdown links create a traversable knowledge graph
-- YAML frontmatter with reserved fields — no ambiguity about what `title` vs `name` means
+| | llm-wiki-okf | Vector RAG | Flat context files |
+|---|---|---|---|
+| Model must consult it | Enforced by skill | Model may skip search | Model may skip file |
+| Structured retrieval | Index-driven path | Fuzzy, hit-or-miss | Linear scan |
+| Source traceability | Every claim to `raw/` | Chunks lose provenance | None |
+| Contradiction detection | Flagged, asks first | Diff noise | Silent overwrites |
+| Format validation | Lint tool included | N/A | N/A |
+| Works offline | Yes, markdown files | Needs embedding service | Yes |
+| Git-friendly | Designed for commits | Vector store not git-able | Merge conflicts |
 
 ## Install
 
@@ -78,7 +61,7 @@ The [OKF format](skills/llm-wiki-okf/references/okf-spec.md) (Open Knowledge For
 pi install npm:llm-wiki-okf
 ```
 
-Or from git:
+From git:
 
 ```bash
 pi install git:github.com/hanupratap/llm-wiki-okf
@@ -86,47 +69,29 @@ pi install git:github.com/hanupratap/llm-wiki-okf
 
 ## Usage
 
-The skill loads automatically when you talk about project facts. Or invoke it explicitly:
+The skill loads automatically on memory-related tasks, or explicitly:
 
 ```
 /skill:llm-wiki-okf
 ```
 
-**Natural triggers** — the skill activates on phrases like:
+Natural triggers: "remember this", "add to the wiki", "what do we know about X", "what did we decide about", "who is responsible for", "how does Y work".
 
-> "remember this", "add to the wiki", "update the wiki", "what do we know about X",
-> "what did we decide about...", "who is responsible for...", "how does Y work"
+**Initialize a wiki:**
 
-**Initializing a wiki for your project:**
+> Initialize a wiki for this project
 
-> "Initialize a wiki for this project"
+**Add knowledge:**
 
-The model will scaffold the bundle, then you can start ingesting documents and recording decisions.
+> Add docs/architecture.md to the wiki
 
-**Adding knowledge:**
+The model ingests into `raw/`, generates concept pages, updates indexes, lints, and commits.
 
-> "Add the design doc in docs/architecture.md to the wiki"
+**Query:**
 
-The model ingests it into `raw/`, generates concept pages, updates indexes, lints, and commits.
+> What database does the user service use?
 
-**Querying:**
-
-> "What database do we use for the user service?"
-
-The model reads `index.md` → follows links → finds the relevant entity/note page → answers with citation (`per /notes/infrastructure.md`).
-
-## How it compares
-
-| | llm-wiki-okf | Vector RAG | Flat context files | VS Code Memory |
-|---|---|---|---|---|
-| **Model knows to consult it** | ✅ enforced by skill | ❌ model may skip search | ❌ model may skip the file | ⚠️ best-effort |
-| **Structured retrieval** | ✅ index → sub-index → page | ⚠️ fuzzy, hit-or-miss | ❌ linear scan | ⚠️ limited |
-| **Source traceability** | ✅ every claim backed by `raw/` | ❌ chunks lose provenance | ❌ none | ❌ none |
-| **Contradiction detection** | ✅ flagged, asks before overwriting | ❌ diff noise | ❌ silent overwrites | ❌ silent overwrites |
-| **Format validation** | ✅ lint tool included | ❌ n/a | ❌ n/a | ❌ n/a |
-| **Works offline** | ✅ just markdown files | ❌ needs embedding service | ✅ | ✅ |
-| **Git-friendly** | ✅ designed for commits | ❌ vector store not git-able | ⚠️ merge conflicts | ❌ opaque blob |
-| **No vendor lock-in** | ✅ open format, plain files | ❌ tied to embedding model | ✅ | ⚠️ VS Code specific |
+The model reads `index.md`, follows links, finds the entity page, answers with citation (`/notes/infrastructure.md`).
 
 ## License
 
