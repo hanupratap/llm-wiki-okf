@@ -11,6 +11,10 @@ from pathlib import Path
 from okf_common import (
     EXTERNAL_RE,
     FACTUAL_TYPES,
+    LIFECYCLE_STATUSES,
+    TIMELINE_KINDS,
+    _section_range,
+    extract_section,
     load_bundle,
     resolve_bundles,
     resolve_single_bundle,
@@ -100,6 +104,18 @@ def _lint_bundle(root: Path, args: argparse.Namespace) -> tuple[list[dict], list
                 "message": f"not ISO 8601: {fm['timestamp']!r}",
             })
 
+        # Bad status
+        status = str(fm.get("status", "")).strip()
+        if status and status not in LIFECYCLE_STATUSES:
+            errors.append({
+                "file": c.rel,
+                "rule": "bad-status",
+                "message": (
+                    f"invalid status `{status}` ",
+                    f"(one of {', '.join(LIFECYCLE_STATUSES)})"
+                ),
+            })
+
         # Broken cross-links
         if not c.is_reserved_file:
             for tgt in c.links:
@@ -157,11 +173,78 @@ def _lint_bundle(root: Path, args: argparse.Namespace) -> tuple[list[dict], list
             except Exception:
                 pass
 
+        # ── Timeline validation ───────────────────────────────────
+        if not c.is_reserved_file:
+            body = c.body
+            tl_range = _section_range(body, "timeline")
+
+            if tl_range is not None:
+                timeline_raw = body[tl_range["content_start"]:tl_range["content_end"]].strip()
+                if not timeline_raw or timeline_raw == "_(no entries yet)_":
+                    continue
+
+                # Parse timeline entries
+                entries = []
+                for line in timeline_raw.split("\n"):
+                    if line.startswith("- time:"):
+                        entries.append({"time": line[8:].strip(), "kind": "", "summary": ""})
+                    elif line.startswith("  kind:") and entries:
+                        entries[-1]["kind"] = line[7:].strip()
+                    elif line.startswith("  summary:") and entries:
+                        entries[-1]["summary"] = line[10:].strip()
+                    elif line.startswith("  source:") and entries:
+                        entries[-1]["source"] = line[9:].strip()
+                    elif line.startswith("  affects:") and entries:
+                        entries[-1]["affects"] = line[9:].strip()
+
+                # bad-timeline-kind: validate kind values
+                for entry in entries:
+                    kind = str(entry.get("kind", "")).strip()
+                    if kind and kind not in TIMELINE_KINDS:
+                        errors.append({
+                            "file": c.rel,
+                            "rule": "bad-timeline-kind",
+                            "message": f"unknown timeline kind `{kind}`",
+                        })
+
+                # timeline-out-of-order: check chronological order
+                times = [e.get("time", "") for e in entries]
+                for i in range(1, len(times)):
+                    if times[i] and times[i - 1] and times[i] < times[i - 1]:
+                        warnings.append({
+                            "file": c.rel,
+                            "rule": "timeline-out-of-order",
+                            "message": (
+                                f"entry {i + 1} has time `{times[i]}` ",
+                                f"which is before entry {i} time `{times[i - 1]}`"
+                            ),
+                        })
+                        break  # one warn per page is enough
+
+                # timeline-malformed: check each entry has required fields
+                for i, entry in enumerate(entries):
+                    missing = []
+                    if not entry.get("time"):
+                        missing.append("time")
+                    if not entry.get("kind"):
+                        missing.append("kind")
+                    if not entry.get("summary"):
+                        missing.append("summary")
+                    if missing:
+                        warnings.append({
+                            "file": c.rel,
+                            "rule": "timeline-malformed",
+                            "message": (
+                                f"entry {i + 1} missing field(s): {', '.join(missing)}"
+                            ),
+                        })
+
     # ── Orphan detection ──────────────────────────────────────────────
     for c in concepts:
         if (
             not c.is_reserved_file
             and c.rel != "/index.md"
+            and str(c.frontmatter.get("status", "")).strip() != "archived"
             and incoming.get(c.rel, 0) == 0
         ):
             warnings.append({

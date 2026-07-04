@@ -55,14 +55,35 @@ Common failure modes to avoid:
 
 ## Script paths
 
-`okf_*.py` scripts live in two places depending on your platform:
+Scripts live in two places depending on your platform:
 
-- **Pi / Claude Code**: the scripts are in the skill directory. Run as `python3 scripts/okf_*.py`
-  resolved relative to this `SKILL.md`'s folder.
-- **Cursor / Copilot / Windsurf**: the scripts were installed to `~/.local/bin`. Run by name:
-  `okf_init.py`, `okf_lint.py`, etc. If `scripts/okf_*.py` doesn't resolve, try the bare name.
-- The `okf_common.py` module must be co-located with the script being run (same directory as all
-  `okf_*.py` files).
+- **Pi / Claude Code**: run from the skill directory
+- **Cursor / Copilot / Windsurf**: scripts installed to `~/.local/bin`
+
+### Unified CLI (preferred)
+
+Use the unified `okf` command for all operations:
+
+```bash
+okf init <bundle>          # scaffold
+okf ingest <source>         # ingest a raw source
+okf update <page>           # bump timestamp after edit
+okf truth <page>            # atomic rewrite with provenance
+okf archive <page>          # archive with reversal summary
+okf diff <page>             # git diff for a page
+okf lint <bundle>           # validate format and links
+okf search <query>          # ranked search
+okf status                  # bundle health
+okf index <bundle>          # regenerate indexes
+okf dir [--tier all]        # show resolved directories
+okf now                     # current ISO timestamp
+okf wire --agent <name>     # wire into agent config
+```
+
+### Per-script (still works)
+
+Each operation also has a standalone script (`okf_init.py`, `okf_lint.py`, etc.).
+The `okf_common.py` module must be co-located with the script being run.
 
 ## Operations
 
@@ -149,14 +170,77 @@ Fix errors immediately; treat warnings as real problems.
 content — useful for catching nested YAML, multiline scalars, or tab-indented lists
 that the parser doesn't support.
 
+
+### UPDATE (timeline)
+
+Since v1.3.0, pages can carry a per-page `## timeline` section for provenance.
+The timeline records *why* content changed, not just that it changed.
+
+```bash
+okf update <page> --kind decision --summary "Switched to session cookies"
+```
+
+If the page has no `## timeline` section, `okf update --kind` creates one.
+For timeline entry kinds, see `okf-spec.md`.
+
+
+### TRUTH (atomic rewrite with provenance)
+
+For wholesale rewrites of a page's meaning, pipe the new body to stdin:
+
+```bash
+cat new-body.md | okf truth <page> --summary "Rewrote after security review"
+```
+
+This does **one atomic write**: replaces the body section, appends a `kind: decision`
+timeline entry, bumps timestamp, reindexes, lints, and commits. Changing the
+understanding and recording why happen together — they cannot come apart.
+
+
+### ARCHIVE
+
+When a conclusion is overturned, archive the old page instead of deleting it:
+
+```bash
+okf archive <page> --reversal-summary "Superseded by session-cookies.md"
+```
+
+Sets `status: archived`, appends a `kind: reversal` timeline entry (if summary
+given), and preserves the full page history. Archived pages are excluded from
+`okf search` by default and exempt from orphan-link lint checks.
+
+
+### DIR
+
+Show resolved bundle directories — where each tier lives, whether it's populated:
+
+```bash
+okf dir [--tier all|global|local] [--json]
+```
+
+
+### WIRE
+
+Idempotently inject the wiki discipline into agent config files:
+
+```bash
+okf wire --agent claude cursor copilot   # one or more
+okf wire --agent all                       # all detected
+```
+
+Uses `<!-- BEGIN okf -->` / `<!-- END okf -->` markers so re-running upgrades
+the block in place without touching the rest of the file.
+
+
 ## Format essentials
 
 - `type` is required on every concept page: `Source`, `Note`, `Index`.
 - `sources` is required on factual pages (`Source`, `Note`). Must point to `raw/<file>` that exists.
 - Cross-links are root-relative: `[label](/path/to/file.md)`. Targets must exist. External URLs (`https://...`) are fine and are not checked.
 - `index.md` is the directory entry point; `log.md` is the change history.
+- `status` is optional on concept pages: `active` (default), `draft`, `archived`.
+- Pages can carry an optional `## timeline` section after the body (since v1.3.0).
 - Get a fresh timestamp via `python3 scripts/okf_now.py` rather than hand-writing one (avoids bad-timestamp errors).
-- Frontmatter must use flat `key: value` syntax. Nested maps, multiline scalars (`>`, `|`), and tab indentation are NOT supported by the parser — use inline lists `key: [a, b]` or block lists instead.
 
 ## Rules
 
@@ -167,3 +251,5 @@ that the parser doesn't support.
 - No orphan pages; every concept page must be linked from at least one non-index page (links from `index.md` do not count).
 - Show diff and confirm before meaning changes.
 - Commit after every INGEST / UPDATE.
+- **Provenance discipline**: When you change a page's meaning, append a timeline entry explaining why. Use `okf update --kind decision --summary "..."` for surgical edits, or `okf truth` for atomic rewrites. Never change the body without recording the reason.
+- **Archive, don't delete**: When a conclusion is overturned, use `okf archive --reversal-summary "..."` so the history survives.

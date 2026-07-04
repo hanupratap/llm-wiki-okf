@@ -1,6 +1,45 @@
 # Changelog
 
-## [1.2.0] - 2026-07-03
+## [1.3.0] - 2026-07-04
+
+### Added
+- **Per-page `## timeline`** — append-only provenance for every concept page.
+  Entries record what changed and why (`time`, `kind`, `summary`, optional `source`, `affects`).
+  Entry kinds: `decision`, `evidence`, `reversal`, `note`.
+- **`okf update --kind` / `--summary`** — append a timeline entry when editing a page.
+  If no `## timeline` section exists, one is created automatically.
+- **`okf truth`** — atomic page rewrite with provenance: reads new body from stdin,
+  replaces the body section, appends a `kind: decision` timeline entry, bumps timestamp,
+  reindexes, lints, and commits — all in one atomic write.
+- **`okf archive`** — archive a page with optional reversal summary. Sets `status: archived`,
+  appends `kind: reversal` timeline entry, preserves full history.
+- **`okf status` now reports lifecycle counts** — active/draft/archived page breakdown.
+- **`okf search --include-archived`** — shows archived pages (excluded by default).
+- **`okf lint` validates timelines** — `bad-timeline-kind` (error), `timeline-out-of-order` (warn),
+  `timeline-malformed` (warn). Also checks `bad-status` for invalid status values.
+  Archived pages exempt from orphan-link checks.
+- **`okf dir`** — show resolved bundle directories with exists/populated/page-count info.
+- **`okf wire --agent <name>`** — idempotent agent-config wiring with `<!-- BEGIN okf -->` markers.
+- **Unified `okf` CLI** — one entry point for all operations (`okf init`, `okf ingest`, etc.).
+  Per-script entry points (`okf_init.py`, etc.) still work.
+- **Atomic file writes** — `atomic_write_text()` helper writes via temp-file + replace,
+  used by `bump_timestamp()`, `okf_update --truth`, `okf_archive`, and log updates.
+- **Section helpers** in `okf_common.py`: `extract_section()`, `replace_section()`,
+  `append_to_section()`, `_section_range()`, `format_timeline_entry()`, `_yaml_scalar()`.
+- **`LIFECYCLE_STATUSES` and `TIMELINE_KINDS`** constants exported from `okf_common.py`.
+
+### Changed
+- **`okf-spec.md`** — added Timeline (per-page provenance) and Lifecycle (status) sections.
+- **`SKILL.md`** — restructured with unified CLI commands; added UPDATE (timeline),
+  TRUTH, ARCHIVE, DIR, WIRE operations; added provenance/archive rules.
+- **`install.sh`** — installs unified `okf` CLI; updated Copilot/Windsurf sections with new commands.
+- **`okf_ingest.py`** — skeleton source pages now include a `## timeline` section.
+
+### Deprecated
+- Standalone per-script entry points (`okf_lint.py`, `okf_search.py`, etc.) still work
+  but the unified `okf <subcommand>` form is preferred for new use.
+
+
 
 ### Added
 - **`okf_search.py`** — ranked stdlib token search across concept pages with weighted frontmatter + body scoring. Supports `--toc` for table-of-contents overview, `--json`, and `--tier all|global|local`.

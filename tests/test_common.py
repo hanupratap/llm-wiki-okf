@@ -1,7 +1,7 @@
 """Tests for okf_common.py — parser, link normalizer, search, tiers."""
 from __future__ import annotations
 
-import sys
+import os, sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,13 +11,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "skills" / "llm-wik
 
 from okf_common import (
     FACTUAL_TYPES,
+    LIFECYCLE_STATUSES,
+    TIMELINE_KINDS,
     _parse_yamlish,
     _rel_target,
+    _section_range,
     _term_hits,
+    _yaml_scalar,
+    append_to_section,
+    atomic_write_text,
     bump_timestamp,
+    extract_section,
+    format_timeline_entry,
     load_bundle,
     now_iso,
     parse_frontmatter,
+    replace_section,
     resolve_bundles,
     resolve_single_bundle,
     search_bundle,
@@ -324,6 +333,167 @@ class TestFactualTypes(unittest.TestCase):
     def test_contains_source_and_note(self):
         self.assertIn("Source", FACTUAL_TYPES)
         self.assertIn("Note", FACTUAL_TYPES)
+
+
+
+class TestLifecycleAndTimelineConstants(unittest.TestCase):
+    def test_lifecycle_statuses(self):
+        self.assertIn("active", LIFECYCLE_STATUSES)
+        self.assertIn("draft", LIFECYCLE_STATUSES)
+        self.assertIn("archived", LIFECYCLE_STATUSES)
+        self.assertEqual(len(LIFECYCLE_STATUSES), 3)
+
+    def test_timeline_kinds(self):
+        self.assertIn("decision", TIMELINE_KINDS)
+        self.assertIn("evidence", TIMELINE_KINDS)
+        self.assertIn("reversal", TIMELINE_KINDS)
+        self.assertIn("note", TIMELINE_KINDS)
+        self.assertEqual(len(TIMELINE_KINDS), 4)
+
+
+class TestAtomicWriteText(unittest.TestCase):
+    def test_writes_content(self):
+        with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as f:
+            path = Path(f.name)
+            path.write_text("old content")
+        try:
+            atomic_write_text(path, "new content")
+            self.assertEqual(path.read_text(), "new content")
+        finally:
+            path.unlink()
+
+    def test_preserves_on_crash_simulation(self):
+        """If the temp file is removed, the original must survive."""
+        with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as f:
+            path = Path(f.name)
+            path.write_text("original")
+        try:
+            tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+            # Write temp but crash before replace
+            tmp.write_text("partial")
+            # Now call atomic_write_text — it should overwrite tmp + replace
+            atomic_write_text(path, "new content")
+            self.assertEqual(path.read_text(), "new content")
+            self.assertFalse(tmp.exists(), "temp file should be cleaned up by replace")
+        finally:
+            path.unlink()
+            # Clean up orphan temp if any
+            orphan = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+            if orphan.exists():
+                orphan.unlink()
+
+
+class TestYamlScalar(unittest.TestCase):
+    def test_plain_string(self):
+        self.assertEqual(_yaml_scalar("hello world"), "hello world")
+
+    def test_empty_string(self):
+        self.assertEqual(_yaml_scalar(""), '""')
+
+    def test_needs_quoting(self):
+        # String with special chars needs quoting
+        result = _yaml_scalar('say "hello"')
+        self.assertTrue(result.startswith('"'))
+        self.assertTrue(result.endswith('"'))
+
+    def test_already_safe(self):
+        self.assertEqual(_yaml_scalar("plain-text"), "plain-text")
+
+
+class TestFormatTimelineEntry(unittest.TestCase):
+    def test_minimal(self):
+        entry = format_timeline_entry(time="2026-07-04T12:00:00Z", kind="decision", summary="Fixed auth")
+        self.assertIn("- time: 2026-07-04T12:00:00Z", entry)
+        self.assertIn("  kind: decision", entry)
+        self.assertIn("  summary: Fixed auth", entry)
+        self.assertNotIn("source:", entry)
+        self.assertNotIn("affects:", entry)
+
+    def test_with_source(self):
+        entry = format_timeline_entry(
+            time="2026-07-04T12:00:00Z", kind="decision",
+            summary="Fixed auth", source="raw/audit.md"
+        )
+        self.assertIn("  source: raw/audit.md", entry)
+
+    def test_with_affects(self):
+        entry = format_timeline_entry(
+            time="2026-07-04T12:00:00Z", kind="evidence",
+            summary="Benchmarks confirm", affects=["auth-flow"]
+        )
+        self.assertIn("  affects: [auth-flow]", entry)
+
+    def test_summary_needs_quoting(self):
+        entry = format_timeline_entry(
+            time="2026-07-04T12:00:00Z", kind="note",
+            summary='say "hello" world'
+        )
+        self.assertIn('summary: ', entry)
+
+
+class TestSectionRange(unittest.TestCase):
+    def test_body_section_no_timeline(self):
+        body = "Some content."
+        r = _section_range(body, "body")
+        self.assertIsNotNone(r)
+        self.assertEqual(r["content_end"], len(body))
+
+    def test_body_section_with_timeline(self):
+        body = "Content here.\n\n## timeline\n\n- time: ..."
+        r = _section_range(body, "body")
+        self.assertIsNotNone(r)
+        content = body[r["content_start"]:r["content_end"]].strip()
+        self.assertEqual(content, "Content here.")
+
+    def test_timeline_section(self):
+        body = "Content.\n\n## timeline\n\n- time: ..."
+        r = _section_range(body, "timeline")
+        self.assertIsNotNone(r)
+        self.assertEqual(r["content_end"], len(body))
+
+    def test_nonexistent_section(self):
+        body = "Just some content."
+        r = _section_range(body, "nonexistent")
+        self.assertIsNone(r)
+
+
+class TestExtractSection(unittest.TestCase):
+    def test_extract_body(self):
+        body = "Body text.\n\n## timeline\n\n- time: X"
+        self.assertEqual(extract_section(body, "body"), "Body text.")
+
+    def test_extract_timeline(self):
+        body = "Content.\n\n## timeline\n\n- time: X"
+        self.assertEqual(extract_section(body, "timeline"), "- time: X")
+
+
+class TestReplaceSection(unittest.TestCase):
+    def test_replace_body(self):
+        body = "Old body.\n\n## timeline\n\n- time: X"
+        result = replace_section(body, "body", "New body.")
+        self.assertIn("New body.", result)
+        self.assertIn("## timeline", result)
+        self.assertIn("- time: X", result)  # timeline preserved
+
+    def test_replace_nonexistent_raises(self):
+        with self.assertRaises(ValueError):
+            replace_section("No section here.", "missing", "anything")
+
+
+class TestAppendToSection(unittest.TestCase):
+    def test_append_to_body(self):
+        body = "Existing body.\n\n## timeline\n\n- time: X"
+        result = append_to_section(body, "body", "Appended text.")
+        self.assertIn("Existing body.", result)
+        self.assertIn("Appended text.", result)
+        self.assertIn("## timeline", result)
+        self.assertIn("- time: X", result)
+
+    def test_append_to_timeline(self):
+        body = "Content.\n\n## timeline\n\n- time: X"
+        result = append_to_section(body, "timeline", "- time: Y")
+        self.assertIn("- time: X", result)
+        self.assertIn("- time: Y", result)
 
 
 if __name__ == "__main__":

@@ -28,6 +28,8 @@ def main() -> int:
                     help="JSON output")
     ap.add_argument("--toc", action="store_true",
                     help="Print a table-of-contents overview instead of ranked search")
+    ap.add_argument("--include-archived", action="store_true",
+                    help="Include archived pages in results (excluded by default)")
     args = ap.parse_args()
 
     query = " ".join(args.query).strip()
@@ -58,6 +60,8 @@ def main() -> int:
             for c in cs:
                 if c.is_reserved_file:
                     continue
+                if not args.include_archived and str(c.frontmatter.get("status", "")).strip() == "archived":
+                    continue
                 t = c.type_tag
                 by_type.setdefault(t, []).append({
                     "rel": c.rel,
@@ -70,7 +74,7 @@ def main() -> int:
                     prefix = f"[{tier_label}] " if args.tier == "all" else ""
                     print(f"{prefix}[{t}] {p['title']}  ({p['rel']})")
         else:
-            results = search_bundle(root, query, args.max_results)
+            results = search_bundle(root, query, args.max_results, include_archived=args.include_archived)
             for r in results:
                 if args.tier == "all":
                     r["tier"] = tier_label

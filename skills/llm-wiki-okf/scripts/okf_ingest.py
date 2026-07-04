@@ -79,6 +79,9 @@ def main() -> int:
         f"# {title}\n\n"
         f"> Source: `{raw_rel}`\n\n"
         f"_Skeleton page — read the source and fill in a summary._\n"
+        f"\n"
+        f"## timeline\n\n"
+        f"_(no entries yet)_\n"
     )
     source_page.write_text(frontmatter, encoding="utf-8")
     print(f"Created {source_page.relative_to(root)}")

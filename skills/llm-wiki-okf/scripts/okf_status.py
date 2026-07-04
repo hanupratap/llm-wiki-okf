@@ -8,7 +8,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from okf_common import load_bundle, resolve_bundles, resolve_single_bundle
+from okf_common import LIFECYCLE_STATUSES, load_bundle, resolve_bundles, resolve_single_bundle
 
 
 def _bundle_status(root: Path) -> dict:
@@ -19,6 +19,13 @@ def _bundle_status(root: Path) -> dict:
     # Count by type
     type_counts: dict[str, int] = dict(Counter(c.type_tag for c in pages))
 
+    # Count by lifecycle status
+    status_counts: dict[str, int] = dict(
+        Counter(
+            str(c.frontmatter.get("status", "active")).strip()
+            for c in pages
+        )
+    )
     # Last log entry
     log_path = root / "log.md"
     last_log = ""
@@ -42,6 +49,7 @@ def _bundle_status(root: Path) -> dict:
         "root": str(root),
         "page_count": len(pages),
         "types": type_counts,
+        "statuses": status_counts,
         "raw_files": raw_count,
         "last_log": last_log,
     }
@@ -81,7 +89,9 @@ def main() -> int:
             print(f"OKF status: {prefix}{s['root']}")
             print(f"  pages:       {s['page_count']}")
             print(f"  by type:     {', '.join(f'{t}={n}' for t, n in sorted(s['types'].items()))}")
-            print(f"  raw files:   {s['raw_files']}")
+            status_parts = [f'{st}={s["statuses"].get(st, 0)}' for st in LIFECYCLE_STATUSES if s['statuses'].get(st, 0) > 0]
+            if status_parts:
+                print(f"  lifecycle:  {', '.join(status_parts)}")
             if s["last_log"]:
                 print(f"  last change: {s['last_log'][:80]}")
             print()

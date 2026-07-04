@@ -1,7 +1,7 @@
 """Shared helpers for OKF bundle scripts. Stdlib only."""
 from __future__ import annotations
 
-import re
+import os, re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +18,12 @@ EXTERNAL_RE = re.compile(r"^[a-z][a-z0-9+.-]*://", re.IGNORECASE)
 
 # Page types that are considered factual — they must have a `sources` field.
 FACTUAL_TYPES = {"Source", "Note"}
+
+# Lifecycle statuses for page maturity tracking (optional).
+LIFECYCLE_STATUSES = ("active", "draft", "archived")
+
+# Timeline entry kinds for per-page provenance tracking.
+TIMELINE_KINDS = ("decision", "evidence", "reversal", "note")
 
 # ── Tier resolution ────────────────────────────────────────
 
@@ -103,7 +109,7 @@ def _term_hits(text: str, terms: list[str]) -> int:
     return sum(1 for t in terms if t in lowered)
 
 
-def search_bundle(root: Path, query: str, max_results: int = 10) -> list[dict]:
+def search_bundle(root: Path, query: str, max_results: int = 10, include_archived: bool = False) -> list[dict]:
     """Search a bundle for pages matching *query*.
 
     Scoring: frontmatter fields (title, aliases, tags, description) get
@@ -118,6 +124,8 @@ def search_bundle(root: Path, query: str, max_results: int = 10) -> list[dict]:
     scored: list[dict] = []
     for c in concepts:
         if c.is_reserved_file:
+            continue
+        if not include_archived and str(c.frontmatter.get("status", "")).strip() == "archived":
             continue
 
         fm = c.frontmatter
@@ -169,6 +177,17 @@ def search_bundle(root: Path, query: str, max_results: int = 10) -> list[dict]:
 
 
 # ── Frontmatter & file helpers ─────────────────────────────
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """Write text atomically via temp-file + replace.
+
+    Writes to a sibling `.tmp` file then replaces the target.
+    A crash during write only destroys the temp, never the original.
+    """
+    tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(path)
+
 
 def now_iso() -> str:
     """Current UTC time as ISO 8601, e.g. 2026-07-03T14:30:00Z."""
@@ -251,7 +270,7 @@ def bump_timestamp(path: Path) -> None:
     new_text = "\n".join(lines) + "\n\n" + body.lstrip()
 
     if new_text != text:
-        path.write_text(new_text, encoding="utf-8")
+        atomic_write_text(path, new_text)
 
 
 def slugify(s: str) -> str:
@@ -260,6 +279,117 @@ def slugify(s: str) -> str:
     slug = re.sub(r"[-\s]+", "-", slug)
     return slug.strip("-")[:80] or "untitled"
 
+# ── Section helpers ──────────────────────────────────
+
+def _section_range(body: str, name: str) -> dict | None:
+    """Find a `## <name>` section in body.
+
+    Returns {heading_start, heading_end, content_start, content_end} dict,
+    or None if the heading is not found.
+
+    Special case: name="body" spans from position 0 to before `## timeline`
+    (or EOF if no timeline heading exists).
+    """
+    if name == "body":
+        tl_re = re.compile(r"^##\s+timeline[ \t]*$", re.MULTILINE)
+        tl_match = tl_re.search(body)
+        content_end = tl_match.start() if tl_match else len(body)
+        return {"heading_start": 0, "heading_end": 0,
+                "content_start": 0, "content_end": content_end}
+
+    heading_re = re.compile(rf"^##\s+{re.escape(name)}[ \t]*$", re.MULTILINE)
+    m = heading_re.search(body)
+    if not m:
+        return None
+    heading_end = m.end()
+    content_start = heading_end
+
+    if name == "timeline":
+        return {"heading_start": m.start(), "heading_end": heading_end,
+                "content_start": content_start, "content_end": len(body)}
+
+    rest = body[content_start:]
+    next_heading = re.search(r"^##\s+", rest, re.MULTILINE)
+    if next_heading:
+        content_end = content_start + next_heading.start()
+    else:
+        content_end = len(body)
+
+    return {"heading_start": m.start(), "heading_end": heading_end,
+            "content_start": content_start, "content_end": content_end}
+
+
+def extract_section(body: str, name: str) -> str | None:
+    """Extract the content of a `## <name>` section (without the heading)."""
+    r = _section_range(body, name)
+    if r is None:
+        return None
+    return body[r["content_start"]:r["content_end"]].strip()
+
+
+def replace_section(body: str, name: str, new_content: str) -> str:
+    """Replace the content of a `## <name>` section, preserving the heading.
+
+    Raises ValueError if the section is not found.
+    """
+    r = _section_range(body, name)
+    if r is None:
+        raise ValueError(f"section `## {name}` not found in body")
+    before = body[:r["heading_end"]]
+    after = body[r["content_end"]:]
+    return f"{before}\n\n{new_content.strip()}\n{after.rstrip()}\n"
+
+
+def append_to_section(body: str, name: str, text: str) -> str:
+    """Append content to a `## <name>` section, preserving existing content.
+
+    Raises ValueError if the section is not found.
+    """
+    r = _section_range(body, name)
+    if r is None:
+        raise ValueError(f"section `## {name}` not found in body")
+    before = body[:r["content_end"]].rstrip()
+    after = body[r["content_end"]:]
+    return f"{before}\n\n{text.strip()}\n{after.lstrip()}"
+
+
+# ── Timeline helpers ─────────────────────────────────
+
+
+def _yaml_scalar(value: str) -> str:
+    """Render a scalar for YAML-ish frontmatter/timeline, quoting when needed."""
+    s = str(value)
+    if s == "":
+        return '""'
+    if re.match(r"^[A-Za-z0-9 _./\\-]+$", s) and not s.startswith(" ") and not s.endswith(" "):
+        return s
+    escaped = s.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def format_timeline_entry(
+    *,
+    time: str,
+    kind: str,
+    summary: str,
+    source: str | None = None,
+    affects: list[str] | None = None,
+) -> str:
+    """Format a timeline entry for a per-page timeline section.
+
+    Fields: time (ISO 8601), kind (from TIMELINE_KINDS), summary (),
+    optional source (raw/ path), optional affects (list of page ids).
+    """
+    lines = [
+        f"- time: {time}",
+        f"  kind: {kind}",
+        f"  summary: {_yaml_scalar(summary)}",
+    ]
+    if source:
+        lines.append(f"  source: {_yaml_scalar(source)}")
+    if affects:
+        lines.append(f"  affects: [{', '.join(affects)}]")
+    return "\n".join(lines)
 
 # ── Concept dataclass ─────────────────────────────────────
 

@@ -55,6 +55,13 @@ install_scripts() {
     cp "$skill_dir/scripts/okf_common.py" "$bin_dir/okf_common.py"
   fi
 
+  # Install unified okf CLI
+  if [ -f "$skill_dir/scripts/okf.py" ]; then
+    cp "$skill_dir/scripts/okf.py" "$bin_dir/okf"
+    chmod +x "$bin_dir/okf"
+    success "Installed okf → $bin_dir/okf"
+  fi
+
   # Check if ~/.local/bin is in PATH
   if ! echo "$PATH" | tr ':' '\n' | grep -qF "$bin_dir"; then
     warn "$bin_dir is not in your PATH. Add this to your shell config:"
@@ -139,16 +146,19 @@ This project uses `llm-wiki-okf` for persistent knowledge:
 - Cite using paths: `per .llm-wiki/notes/architecture.md`
 - New knowledge goes into the wiki via INGEST command.
 - Use `okf_search.py <query>` for ranked retrieval when the index path misses a topic.
+- Use `okf truth` for atomic page rewrites with provenance, `okf archive` to retire pages.
 
 Scripts are available (run by name — they are on PATH):
-- `okf_init.py <bundle>` — scaffold a new wiki
-- `okf_ingest.py <source> [--title ...]` — ingest a raw source
-- `okf_search.py <query>` — ranked search across pages
-- `okf_update.py <page>` — bump timestamp + log after editing
-- `okf_diff.py <page>` — show git diff before changes
-- `okf_status.py` — bundle health overview
-- `okf_lint.py <bundle>` — validate format and links
-- `okf_index.py <bundle>` — regenerate indexes
+- `okf init <bundle>` — scaffold a new wiki
+- `okf ingest <source>` — ingest a raw source
+- `okf search <query>` — ranked search across pages
+- `okf update <page>` — bump timestamp + log after editing
+- `okf truth <page>` — atomic rewrite with provenance (pipe body to stdin)
+- `okf archive <page>` — archive a page with reversal summary
+- `okf diff <page>` — show git diff before changes
+- `okf lint <bundle>` — validate format and links
+- `okf status` — bundle health overview
+- `okf dir` — show resolved bundle directories
 
 See https://github.com/hanupratap/llm-wiki-okf for full documentation.
 COPILOT
@@ -173,9 +183,8 @@ Before answering questions about project architecture, design decisions, entitie
 or domain concepts, consult `.llm-wiki/index.md` first. Follow index → subsection
 index → concept page. Cite paths. Never skip the wiki.
 
-Scripts (on PATH): `okf_search.py`, `okf_ingest.py`, `okf_update.py`, `okf_diff.py`,
-`okf_status.py`, `okf_init.py`, `okf_lint.py`, `okf_index.py`
-See: https://github.com/hanupratap/llm-wiki-okf
+Scripts (on PATH): `okf init`, `okf ingest`, `okf update`, `okf truth`, `okf archive`,
+`okf diff`, `okf status`, `okf search`, `okf lint`, `okf dir`
 WINDSURF
 
   success "Windsurf rules → $dest"
