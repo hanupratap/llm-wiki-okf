@@ -7,17 +7,28 @@ import json
 import sys
 from pathlib import Path
 
-from okf_common import load_bundle, resolve_bundles
+from okf_common import load_bundle, resolve_bundles, resolve_single_bundle
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Show wiki bundle directory info")
+    ap.add_argument("--bundle", default=None, help="Explicit bundle path")
     ap.add_argument("--tier", default="all", choices=["local", "global", "all"],
                     help="Tier selector (default: all)")
     ap.add_argument("--json", action="store_true", help="JSON output")
     args = ap.parse_args()
 
-    bundles = resolve_bundles(args.tier)
+    if args.bundle:
+        resolved = resolve_single_bundle(args.bundle)
+        if resolved is None or not resolved[1].is_dir():
+            print(f"Bundle not found: {args.bundle}", file=sys.stderr)
+            return 1
+        bundles = [resolved]
+    else:
+        bundles = resolve_bundles(args.tier)
+        if not bundles:
+            print("No bundles found.", file=sys.stderr)
+            return 1
     if not bundles:
         print("No bundles found.", file=sys.stderr)
         return 1
@@ -46,7 +57,7 @@ def main() -> int:
         print(json.dumps(output, indent=2))
     else:
         for entry in output:
-            tier_tag = f"[{entry['tier']}] " if args.tier == "all" else ""
+            tier_tag = f"[{entry['tier']}] " if entry['tier'] else ""
             print(f"{tier_tag}{entry['path']}")
             print(f"  exists:    {entry['exists']}")
             print(f"  populated: {entry['populated']}")

@@ -336,8 +336,10 @@ def replace_section(body: str, name: str, new_content: str) -> str:
     if r is None:
         raise ValueError(f"section `## {name}` not found in body")
     before = body[:r["heading_end"]]
-    after = body[r["content_end"]:]
-    return f"{before}\n\n{new_content.strip()}\n{after.rstrip()}\n"
+    after_str = body[r["content_end"]:].rstrip()
+    if after_str:
+        return f"{before}\n\n{new_content.strip()}\n\n{after_str}\n"
+    return f"{before}\n\n{new_content.strip()}\n"
 
 
 def append_to_section(body: str, name: str, text: str) -> str:
@@ -391,7 +393,44 @@ def format_timeline_entry(
         lines.append(f"  affects: [{', '.join(affects)}]")
     return "\n".join(lines)
 
-# ── Concept dataclass ─────────────────────────────────────
+
+def ensure_timeline_section(text: str) -> str:
+    """Add a ``## timeline`` section at the END if one doesn't exist.
+
+    Works on full file text (with frontmatter) or body-only text.
+    The timeline is appended at the end, NOT inserted after the frontmatter,
+    so the body content stays before the timeline.
+    """
+    if re.search(r"^##\s+timeline[ \t]*$", text, re.MULTILINE):
+        return text
+    return text.rstrip() + "\n\n## timeline\n\n_(no entries yet)_\n"
+
+
+def append_timeline_entry(text: str, entry: str) -> str:
+    """Append a timeline entry to the ``## timeline`` section.
+
+    Removes the ``_(no entries yet)_`` placeholder if it was the only content.
+    Works on full file text (with frontmatter) or body-only text.
+    """
+    r = _section_range(text, "timeline")
+    if r is None:
+        # No timeline section — append one at the end
+        return text.rstrip() + "\n\n## timeline\n\n" + entry + "\n"
+
+    content = text[r["content_start"]:r["content_end"]]
+    placeholder = "_(no entries yet)_"
+
+    if content.strip() == placeholder:
+        # Replace placeholder with the first real entry
+        before = text[:r["content_start"]]
+        after = text[r["content_end"]:]
+        return before + "\n\n" + entry + "\n" + after.lstrip()
+
+    # Append to existing entries
+    before = text[:r["content_end"]].rstrip()
+    after = text[r["content_end"]:]
+    return before + "\n\n" + entry + "\n" + after.lstrip()
+
 
 @dataclass
 class Concept:

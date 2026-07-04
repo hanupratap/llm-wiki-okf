@@ -3,34 +3,21 @@
 from __future__ import annotations
 
 import argparse
-import re
 import os as _os
 import subprocess
 import sys
 from pathlib import Path
 
 from okf_common import (
-    append_to_section,
+    append_timeline_entry,
     atomic_write_text,
+    ensure_timeline_section,
     format_timeline_entry,
     now_iso,
     parse_frontmatter,
     resolve_single_bundle,
 )
 
-
-
-def _ensure_timeline_section(text: str) -> str:
-    """Add a ``## timeline`` section to a page if one doesn't exist."""
-    if re.search(r"^##\s+timeline[ \t]*$", text, re.MULTILINE):
-        return text
-    fm_match = re.match(r"^---\s*\n.*?\n---\s*\n?", text, re.DOTALL)
-    if fm_match:
-        insert_at = fm_match.end()
-        before = text[:insert_at]
-        after = text[insert_at:].lstrip()
-        return before + "\n\n## timeline\n\n_(no entries yet)_\n" + after
-    return text + "\n\n## timeline\n\n_(no entries yet)_\n"
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Archive an OKF wiki page")
@@ -61,11 +48,12 @@ def main() -> int:
     page_rel = _os.path.relpath(_os.path.realpath(page_path), _os.path.realpath(root))
     ts = now_iso()
 
-    # Read current page
+    # Read current page, parse frontmatter, operate on body only
     text = page_path.read_text(encoding="utf-8", errors="replace")
+    fm, body = parse_frontmatter(text)
 
-    # Ensure timeline section exists
-    text = _ensure_timeline_section(text)
+    # Ensure timeline section exists (appended at end of body)
+    body = ensure_timeline_section(body)
 
     # Append reversal timeline entry if summary given
     if args.reversal_summary:
@@ -73,10 +61,9 @@ def main() -> int:
             time=ts, kind="reversal",
             summary=args.reversal_summary,
         )
-        text = append_to_section(text, "timeline", entry)
+        body = append_timeline_entry(body, entry)
 
     # Set status to archived and bump timestamp in frontmatter
-    fm, body = parse_frontmatter(text)
     fm["status"] = "archived"
     fm["timestamp"] = ts
     lines = ["---"]

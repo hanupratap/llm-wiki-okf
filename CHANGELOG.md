@@ -1,6 +1,28 @@
 # Changelog
 
-## [1.3.0] - 2026-07-04
+## [1.3.1] - 2026-07-04
+
+### Fixed
+- **`okf truth` no longer clobbers frontmatter** — the previous release called
+  `replace_section` on the full file text, which dropped `type`, `title`, `sources`.
+  Now parses frontmatter first, operates on body only, then reassembles.
+- **Timeline section now appended at the END of the page** — the previous
+  `_ensure_timeline_section` inserted it right after frontmatter, jumbling structure.
+  Replaced with `ensure_timeline_section()` (shared in `okf_common.py`) that appends
+  at the end, preserving body content order.
+- **`_(no entries yet)_` placeholder removed on first real entry** — new
+  `append_timeline_entry()` helper detects and replaces the placeholder.
+- **Blank line between body and `## timeline` heading** — `replace_section` now
+  inserts `\n\n` before the trailing section instead of `\n`.
+- **`okf dir` now accepts `--bundle`** — was inconsistent with every other command
+  which all accept `--bundle` for explicit path resolution.
+
+### Changed
+- Extracted `ensure_timeline_section()` and `append_timeline_entry()` into
+  `okf_common.py` as shared helpers (used by `okf_update` and `okf_archive`).
+  Removed the duplicate local `_ensure_timeline_section` from both scripts.
+
+
 
 ### Added
 - **Per-page `## timeline`** — append-only provenance for every concept page.
