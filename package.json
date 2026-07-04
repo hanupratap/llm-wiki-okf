@@ -1,8 +1,8 @@
 {
   "name": "llm-wiki-okf",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Persistent markdown knowledge base (OKF format) for LLM project memory. Two-tier wiki with immutable raw sources and LLM-generated concept pages — consult it before answering questions about project facts, architecture, design decisions, or domain entities.",
-  "keywords": ["pi-package"],
+  "keywords": ["pi-package", "llm-wiki", "okf", "knowledge-base", "wiki"],
   "license": "MIT",
   "author": "hanupratap",
   "repository": {

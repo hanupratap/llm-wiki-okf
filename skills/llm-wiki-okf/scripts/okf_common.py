@@ -16,6 +16,159 @@ MARKER_CLOSE = "<!-- /okf:auto-index -->"
 # not be normalized as bundle-relative paths.
 EXTERNAL_RE = re.compile(r"^[a-z][a-z0-9+.-]*://", re.IGNORECASE)
 
+# Page types that are considered factual — they must have a `sources` field.
+FACTUAL_TYPES = {"Source", "Note"}
+
+# ── Tier resolution ────────────────────────────────────────
+
+BUNDLE_GLOBAL = Path.home() / ".llm-wiki"
+BUNDLE_LOCAL = Path(".llm-wiki").resolve()
+
+
+def resolve_bundles(tier: str = "local") -> list[tuple[str, Path]]:
+    """Resolve wiki bundle paths for a tier selector.
+
+    Returns list of (label, path) tuples — global first when tiers are merged,
+    so per-tier output is naturally ordered.
+    """
+    bundles: list[tuple[str, Path]] = []
+    if tier in ("global", "all"):
+        if BUNDLE_GLOBAL.is_dir():
+            bundles.append(("global", BUNDLE_GLOBAL))
+    if tier in ("local", "all"):
+        if BUNDLE_LOCAL.is_dir():
+            bundles.append(("local", BUNDLE_LOCAL))
+    return bundles
+
+
+def resolve_single_bundle(path: str | Path | None, tier: str = "local") -> tuple[str, Path] | None:
+    """Resolve a single bundle from an explicit path or tier selector.
+
+    If *path* is given, return it (no tier label).
+    Otherwise resolve via *tier*; return the first match, or None.
+    """
+    if path is not None:
+        p = Path(path).resolve()
+        return ("", p) if p.is_dir() else None
+    bundles = resolve_bundles(tier)
+    if bundles:
+        return bundles[0]
+    return None
+
+
+# ── Tokens & search ────────────────────────────────────────
+
+# Stopwords: very common English terms that add noise to search ranking.
+_STOPWORDS: set[str] = {
+    "and", "the", "this", "that", "with", "from", "have", "been", "were", 
+    "they", "their", "them", "will", "would", "could", "should",
+    "about", "there", "which", "what", "when", "where", "than",
+    "then", "also", "just", "more", "some", "such", "only", "other",
+    "into", "over", "very", "after", "before", "because", "between",
+    "through", "during", "without", "within", "along", "these", "those",
+    "does", "being", "its", "been",
+}
+
+
+def tokenize_query(query: str) -> list[str]:
+    """Tokenize a search query for bundle search.
+
+    Lowercases, strips punctuation, splits on whitespace, removes
+    stopwords and very short tokens. Returns unique tokens in order.
+    """
+    normalized = query.lower()
+    normalized = re.sub(r"[\-_./\\]+", " ", normalized)
+    normalized = re.sub(r"[\W_]+", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+
+    seen: set[str] = set()
+    tokens: list[str] = []
+    for token in normalized.split():
+        token = token.strip()
+        if len(token) < 2:
+            continue
+        if token in _STOPWORDS:
+            continue
+        if token not in seen:
+            seen.add(token)
+            tokens.append(token)
+    return tokens
+
+
+def _term_hits(text: str, terms: list[str]) -> int:
+    """Count how many *terms* appear in *text* (case-insensitive)."""
+    if not text:
+        return 0
+    lowered = text.lower()
+    return sum(1 for t in terms if t in lowered)
+
+
+def search_bundle(root: Path, query: str, max_results: int = 10) -> list[dict]:
+    """Search a bundle for pages matching *query*.
+
+    Scoring: frontmatter fields (title, aliases, tags, description) get
+    higher weights; body content gets a baseline weight. Results are
+    ranked by total score descending.
+    """
+    concepts = load_bundle(root)
+    terms = tokenize_query(query)
+    if not terms:
+        return []
+
+    scored: list[dict] = []
+    for c in concepts:
+        if c.is_reserved_file:
+            continue
+
+        fm = c.frontmatter
+        score = 0
+
+        # Identity fields — highest weight
+        score += _term_hits(str(fm.get("title", "")), terms) * 6
+        score += _term_hits(c.rel, terms) * 4
+
+        # Metadata fields
+        for field, weight in [
+            ("aliases", 5),
+            ("description", 4),
+            ("tags", 3),
+            ("type", 2),
+            ("category", 2),
+            ("domain", 2),
+        ]:
+            val = fm.get(field)
+            if isinstance(val, list):
+                score += _term_hits(" ".join(str(v) for v in val), terms) * weight
+            else:
+                score += _term_hits(str(val), terms) * weight
+
+        # Body — baseline
+        score += _term_hits(c.body, terms) * 1
+
+        if score > 0:
+            title = str(fm.get("title") or c.rel.split("/")[-1].replace(".md", ""))
+            page_type = str(fm.get("type", "page"))
+            desc = str(fm.get("description", ""))
+            # Preview: first ~200 chars of body
+            preview = c.body.strip()[:200].replace("\n", " ")
+            if len(c.body.strip()) > 200:
+                preview += "…"
+
+            scored.append({
+                "rel": c.rel,
+                "title": title,
+                "type": page_type,
+                "description": desc,
+                "preview": preview,
+                "score": score,
+                "path": str(c.path),
+            })
+
+    scored.sort(key=lambda r: (-r["score"], r["rel"]))
+    return scored[:max_results]
+
+
+# ── Frontmatter & file helpers ─────────────────────────────
 
 def now_iso() -> str:
     """Current UTC time as ISO 8601, e.g. 2026-07-03T14:30:00Z."""
@@ -34,9 +187,17 @@ def _parse_yamlish(text: str) -> dict[str, Any]:
     """Tiny parser for flat frontmatter.
 
     Supports:
-      - key: value
-      - key: [a, b, c]        (inline list)
-      - key:                  (block list, one `- item` per following indented line)
+      - key: value           (plain scalar, quotes stripped)
+      - key: [a, b, c]       (inline list)
+      - key:                 (block list, one `- item` per following indented line)
+
+    NOT supported (the yamlish subset is deliberate — keep frontmatter
+    flat and predictable):
+      - nested mappings (e.g. ``key: { sub: val }``)
+      - multiline string values (``>`` / ``|``)
+      - inline comments after a value on the same line
+      - tabs as indentation
+      - quoted keys containing ``:``
     """
     out: dict[str, Any] = {}
     current_key: str | None = None
@@ -72,6 +233,36 @@ def _parse_yamlish(text: str) -> dict[str, Any]:
     return out
 
 
+def bump_timestamp(path: Path) -> None:
+    """Bump the `timestamp` field in a markdown file's frontmatter."""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    fm, body = parse_frontmatter(text)
+    new_ts = now_iso()
+    fm["timestamp"] = new_ts
+
+    # Rebuild frontmatter block
+    lines: list[str] = ["---"]
+    for k, v in fm.items():
+        if isinstance(v, list):
+            lines.append(f"{k}: [{', '.join(v)}]")
+        else:
+            lines.append(f"{k}: {v}")
+    lines.append("---")
+    new_text = "\n".join(lines) + "\n\n" + body.lstrip()
+
+    if new_text != text:
+        path.write_text(new_text, encoding="utf-8")
+
+
+def slugify(s: str) -> str:
+    """Derive a safe slug from a string."""
+    slug = re.sub(r"[^\w\s-]", "", s.lower())
+    slug = re.sub(r"[-\s]+", "-", slug)
+    return slug.strip("-")[:80] or "untitled"
+
+
+# ── Concept dataclass ─────────────────────────────────────
+
 @dataclass
 class Concept:
     path: Path
@@ -87,6 +278,10 @@ class Concept:
         return self.path.name.lower() in {
             "index.md", "log.md", "readme.md"
         }
+
+    @property
+    def type_tag(self) -> str:
+        return str(self.frontmatter.get("type", "page"))
 
 
 def _rel_target(link: str, from_rel: str) -> str:

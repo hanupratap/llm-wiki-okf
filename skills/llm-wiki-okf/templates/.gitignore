@@ -1,0 +1,16 @@
+# OKF Wiki bundle — add this to your bundle/.gitignore if needed.
+
+# Immutable raw sources — commit these (they are the source of truth).
+# !raw/
+
+# Generated indexes — these are auto-generated, but committing them
+# gives fast bootstrap without running okf_index.py on clone.
+# If you prefer to regenerate on every fresh checkout, uncomment:
+# *.auto.md
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~

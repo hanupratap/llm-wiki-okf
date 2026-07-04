@@ -126,7 +126,7 @@ install_copilot() {
     echo "" >> "$dest"
   fi
 
-  # Condensed version for Copilot
+  # Condensed version for Copilot — updated with new scripts
   cat >> "$dest" <<'COPILOT'
 ## Project Memory (llm-wiki-okf)
 
@@ -138,9 +138,15 @@ This project uses `llm-wiki-okf` for persistent knowledge:
 - Do not answer from raw project files or memory before consulting the wiki.
 - Cite using paths: `per .llm-wiki/notes/architecture.md`
 - New knowledge goes into the wiki via INGEST command.
+- Use `okf_search.py <query>` for ranked retrieval when the index path misses a topic.
 
-Scripts are available:
+Scripts are available (run by name — they are on PATH):
 - `okf_init.py <bundle>` — scaffold a new wiki
+- `okf_ingest.py <source> [--title ...]` — ingest a raw source
+- `okf_search.py <query>` — ranked search across pages
+- `okf_update.py <page>` — bump timestamp + log after editing
+- `okf_diff.py <page>` — show git diff before changes
+- `okf_status.py` — bundle health overview
 - `okf_lint.py <bundle>` — validate format and links
 - `okf_index.py <bundle>` — regenerate indexes
 
@@ -167,7 +173,8 @@ Before answering questions about project architecture, design decisions, entitie
 or domain concepts, consult `.llm-wiki/index.md` first. Follow index → subsection
 index → concept page. Cite paths. Never skip the wiki.
 
-Scripts: `okf_init.py`, `okf_lint.py`, `okf_index.py`
+Scripts (on PATH): `okf_search.py`, `okf_ingest.py`, `okf_update.py`, `okf_diff.py`,
+`okf_status.py`, `okf_init.py`, `okf_lint.py`, `okf_index.py`
 See: https://github.com/hanupratap/llm-wiki-okf
 WINDSURF
 

@@ -39,7 +39,7 @@ bundle/
 
 **Git-native.** Every INGEST and UPDATE creates a commit. Full history, revertible, reviewable.
 
-**Built-in tooling.** `okf_lint.py` validates broken links, orphan pages, missing sources, and bad timestamps. `okf_index.py` regenerates auto-indexes. Errors are hard stops, not warnings.
+**Built-in tooling.** `okf_search.py` for ranked page retrieval; `okf_ingest.py` and `okf_update.py` for deterministic source/page workflows; `okf_diff.py` for reviewing changes; `okf_status.py` for bundle health; `okf_lint.py` validates broken links, orphan pages, missing sources, bad timestamps, and contradictions; `okf_index.py` regenerates auto-indexes. Errors are hard stops, not warnings.
 
 **No service dependency.** Markdown files in a directory. Works offline, works with git, lives in your repo or `~/.llm-wiki`.
 
@@ -143,7 +143,32 @@ The model ingests into `raw/`, generates concept pages, updates indexes, lints, 
 
 > What database does the user service use?
 
-The model reads `index.md`, follows links, finds the entity page, answers with citation (`/notes/infrastructure.md`).
+The model reads `index.md`, follows links, finds the entity page, answers with citation (`/notes/infrastructure.md`). If the index path misses a topic, use `okf_search.py` for ranked retrieval instead of raw grep.
+
+## Commands
+
+Scripts are in `skills/llm-wiki-okf/scripts/` (Pi / Claude) or on `~/.local/bin` after running `install.sh` (Cursor / Copilot / Windsurf).
+
+```bash
+okf_init.py <bundle> [--title ...] [--from-readme]
+okf_ingest.py <source> --bundle <bundle> [--title ...] [--slug ...]
+okf_update.py <page> --bundle <bundle> [--message ...]
+okf_search.py <query> --bundle <bundle> [--tier all|global|local] [--max-results N]
+okf_status.py --bundle <bundle> [--tier all|global|local] [--json]
+okf_diff.py <page> --bundle <bundle> [--previous N]
+okf_lint.py <bundle> [--tier all|global|local] [--strict-frontmatter]
+okf_index.py <bundle> [--dry-run]
+```
+
+Tiers: `--tier all` queries both the global `~/.llm-wiki` and the per-project `./.llm-wiki` bundles in one pass.
+
+## Testing
+
+Run the stdlib-only test suite:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
 
 ## License
 
