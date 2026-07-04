@@ -1,5 +1,7 @@
 # llm-wiki-okf
 
+> Inspired by [Andrej Karpathy's LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern and Google's [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) (OKF) specification.
+
 Persistent project memory for your AI coding agent — a markdown knowledge base that your LLM actually consults before answering.
 
 ## The problem
